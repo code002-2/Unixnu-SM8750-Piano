@@ -51,6 +51,23 @@ _verified_root_policy_count:
 .globl _native_owner_cache_stage
 _native_owner_cache_stage:
 .long 0
+.globl _native_adreno_pool_stats
+_native_adreno_pool_stats:
+.space 32
+// The GPU trace/pixel hooks belong to the Adreno component the piano defconfig
+// leaves out; the boot-progress and GOP-presenter paths still reference them.
+.section __TEXT,__text
+.globl _native_gpu_trace_enabled
+_native_gpu_trace_enabled:
+mov w0, #0
+ret
+.globl _native_gpu_trace_record
+_native_gpu_trace_record:
+ret
+.globl _native_gpu_pixel_put
+_native_gpu_pixel_put:
+mov w0, #1
+ret
 ''')
 
 sources = [ROOT / 'kits/PaganiVerifiedRoot/src/verified_root.c',
