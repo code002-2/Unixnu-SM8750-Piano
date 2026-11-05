@@ -1,0 +1,182 @@
+name: image
+
+# Full macOS chain for the Xiaomi Pad 8 Pro (piano) port:
+# kernel -> package -> firmware -> payload -> boot image, published to a Release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'platform seed for the ADT (hex)'
+        default: '0x0123456789abcdef'
+        required: true
+      jobs:
+        description: 'parallel jobs'
+        default: '4'
+      owner_data:
+        description: 'build the writable Data path (needs a macOS Data seed; leave false for the first RAM boot)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: macos-26
+    timeout-minutes: 360
+    env:
+      UNIXNU_UNIQUE_CHIP_ID: ${{ inputs.seed }}
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      DEVICE_ARGS: '--local-drivers ../UniXNU-device/modules/Pagani/drivers --local-kits ../UniXNU-device/modules/Pagani/kits'
+      OUT: out/piano/ipados-17.7.11-21H461/piano
+    steps:
+      - name: checkout this repository (build inputs)
+        uses: actions/checkout@v4
+        with:
+          path: ci
+
+      - name: checkout UniXNU main fork
+        uses: actions/checkout@v4
+        with:
+          repository: IssacL04/UniXNU_Enc3l
+          path: UniXNU
+          submodules: recursive
+
+      - name: checkout device repository
+        uses: actions/checkout@v4
+        with:
+          repository: xiaomi-pad-8-pro-development/android_device_xiaomi_piano-unixnu
+          path: UniXNU-device
+          submodules: recursive
+
+      - name: checkout firmware repository and its Mu-Silicium dependencies
+        uses: actions/checkout@v4
+        with:
+          repository: xiaomi-pad-8-pro-development/android_device_xiaomi_piano-uefi
+          path: piano-uefi
+          ref: unixnu
+
+      - name: install tools
+        run: |
+          brew install dtc llvm lld cmake mtools lzfse nasm
+          bash piano-uefi/tools/setup-deps.sh
+
+      - name: show host
+        run: |
+          sw_vers
+          xcodebuild -version
+          echo "cpus: $(sysctl -n hw.ncpu) arch: $(uname -m)"
+
+      - name: local build configuration
+        working-directory: UniXNU
+        run: |
+          cat > unixnu.local.toml <<EOF
+          [build]
+          device = "../UniXNU-device"
+          uefi = "../piano-uefi/deps/Mu-Silicium"
+          dtb = "$GITHUB_WORKSPACE/ci/inputs/piano-live.dtb"
+          jobs = ${{ inputs.jobs }}
+          target = "DEBUG"
+          EOF
+          cat unixnu.local.toml
+
+      - name: defconfig
+        working-directory: UniXNU
+        run: |
+          ./unixnu defconfig piano_defconfig -D ../UniXNU-device $DEVICE_ARGS
+
+      - name: resolve the Data decision
+        if: ${{ inputs.owner_data == false }}
+        working-directory: UniXNU
+        run: |
+          # The first RAM boot has no Data seed: the owner Data mount needs the APFS
+          # UUID of a real seed (make-data-seed.py, macOS image tools).
+          sed -i '' 's/^CONFIG_XNU_OWNER_DATA_MOUNT=y/# CONFIG_XNU_OWNER_DATA_MOUNT is not set/' $OUT/.config
+          grep -n 'OWNER_DATA' $OUT/.config
+
+      - name: status
+        working-directory: UniXNU
+        run: |
+          ./unixnu status --json -D ../UniXNU-device $DEVICE_ARGS | tee status.json
+
+      - name: fetch sources
+        working-directory: UniXNU
+        run: |
+          ./unixnu fetch
+
+      - name: fetch IPSW components
+        working-directory: UniXNU
+        run: |
+          ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS
+
+      - name: build kernel
+        working-directory: UniXNU
+        run: |
+          ./unixnu build kernel -D ../UniXNU-device $DEVICE_ARGS
+
+      - name: build package
+        working-directory: UniXNU
+        run: |
+          ./unixnu build package -D ../UniXNU-device $DEVICE_ARGS
+
+      - name: build firmware
+        working-directory: UniXNU
+        run: |
+          ./unixnu build firmware -D ../UniXNU-device --uefi ../piano-uefi/deps/Mu-Silicium $DEVICE_ARGS
+
+      - name: build payload
+        working-directory: UniXNU
+        run: |
+          ./unixnu build payload -D ../UniXNU-device $DEVICE_ARGS \
+            --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID" \
+            --trust-cache "$OUT/../../../ipsw/21H461/044-76040-038.dmg.trustcache" \
+            --dtb "$GITHUB_WORKSPACE/ci/inputs/piano-live.dtb"
+
+      - name: pack boot image
+        working-directory: UniXNU
+        run: |
+          ./unixnu bootimg -D ../UniXNU-device --uefi ../piano-uefi/deps/Mu-Silicium \
+            --dtb "$GITHUB_WORKSPACE/ci/inputs/piano-live.dtb"
+
+      - name: collect results
+        if: always()
+        working-directory: UniXNU
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out-image"
+          for f in $OUT/kernel/kernel.macho $OUT/kernel/kernel.macho.adt \
+                   $OUT/payload/payload.img $OUT/payload/payload.json \
+                   $OUT/boot/boot.img $OUT/boot/boot.json \
+                   $OUT/package/Build/Out/AARCH64-DEBUG/UniXNU.efi \
+                   ../piano-uefi/deps/Mu-Silicium/Build/pianoPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd; do
+            [ -f "$f" ] && cp -v "$f" "$GITHUB_WORKSPACE/out-image/" || true
+          done
+          cp -v status.json "$GITHUB_WORKSPACE/out-image/" || true
+          (cd "$GITHUB_WORKSPACE/out-image" && sha256sum * > SHA256SUMS.txt) || true
+          ls -l "$GITHUB_WORKSPACE/out-image"
+
+      - name: publish release
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="image-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --title "piano image ${GITHUB_RUN_NUMBER}" \
+            --notes "seed ${{ inputs.seed }}, owner_data ${{ inputs.owner_data }}, commit ${GITHUB_SHA:0:7}" || true
+          gh release upload "$TAG" "$GITHUB_WORKSPACE"/out-image/* --repo "$GITHUB_REPOSITORY" --clobber || true
+
+      - name: upload workflow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: piano-image
+          if-no-files-found: warn
+          retention-days: 3
+          path: |
+            out-image/**
+            UniXNU/out/piano/*/*/logs/**
