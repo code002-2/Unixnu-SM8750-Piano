@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Bring-up stand-in for the owner-root policy archive.
 
 The real recipe (build-pagani-verified-root-probe.py --component os --include-systemos)
@@ -71,7 +71,8 @@ ret
 ''')
 
 sources = [ROOT / 'kits/PaganiVerifiedRoot/src/verified_root.c',
-           ROOT / 'kits/PaganiVerifiedRoot/adapters/xnu_crypto.c']
+           ROOT / 'kits/PaganiVerifiedRoot/adapters/xnu_crypto.c',
+           ROOT / 'scripts/qemu-entry/verified-root-probe.c']
 missing = [str(path) for path in sources if not path.is_file()]
 if missing:
     raise SystemExit('verified-root sources missing: ' + ', '.join(missing))
