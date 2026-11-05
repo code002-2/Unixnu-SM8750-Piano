@@ -1,4 +1,4 @@
-name: image
+﻿name: image
 
 # Full macOS chain for the Xiaomi Pad 8 Pro (piano) port:
 # kernel -> package -> firmware -> payload -> boot image, published to a Release.
@@ -140,6 +140,17 @@ jobs:
             out/ipsw/21H461/044-76034-038.dmg.trustcache
           sha256sum "$GITHUB_WORKSPACE/piano-trust.bundle"
 
+      - name: board kit overlay
+        working-directory: UniXNU
+        run: |
+          # The community peripheral/display recipes hard-code the 13T board kit
+          # (kits/oneplus13t/PaganiPeripherals.h). This port has no package/ board kit
+          # yet, so the bring-up build supplies the 13T header as a stand-in: it compiles
+          # and gives the legacy display path a place to land, but its touch/panel/PMIC
+          # constants are PKX110 values and must be replaced with piano ones.
+          ./unixnu tree -D ../UniXNU-device $DEVICE_ARGS
+          mkdir -p "$OUT/tree/kits/oneplus13t"
+          cp -v "$GITHUB_WORKSPACE/ci/overlay/PaganiPeripherals.h" "$OUT/tree/kits/oneplus13t/"
       - name: build kernel
         working-directory: UniXNU
         run: |
