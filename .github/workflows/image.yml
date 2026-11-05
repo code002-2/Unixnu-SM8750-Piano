@@ -13,10 +13,10 @@ on:
       jobs:
         description: 'parallel jobs'
         default: '4'
-      owner_data:
-        description: 'build the writable Data path (needs a macOS Data seed; leave false for the first RAM boot)'
+      bringup:
+        description: 'bring-up profile: skip the owner-root/verified-root path that needs the original OS image and a Data seed'
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write
@@ -90,14 +90,30 @@ jobs:
         run: |
           ./unixnu defconfig piano_defconfig -D ../UniXNU-device $DEVICE_ARGS
 
-      - name: resolve the Data decision
-        if: ${{ inputs.owner_data == false }}
+      - name: bring-up profile
+        if: ${{ inputs.bringup == true }}
         working-directory: UniXNU
         run: |
-          # The first RAM boot has no Data seed: the owner Data mount needs the APFS
-          # UUID of a real seed (make-data-seed.py, macOS image tools).
-          sed -i '' 's/^CONFIG_XNU_OWNER_DATA_MOUNT=y/# CONFIG_XNU_OWNER_DATA_MOUNT is not set/' $OUT/.config
-          grep -n 'OWNER_DATA' $OUT/.config
+          for k in CONFIG_XNU_VERIFIED_ROOT_PROBE CONFIG_XNU_OWNER_ROOT_AUDIT CONFIG_XNU_OWNER_ROOT_TRUST \
+                   CONFIG_XNU_OWNER_CACHE_MOUNT CONFIG_XNU_OWNER_CACHE_STARTUP CONFIG_XNU_OWNER_BOOT_MANIFEST \
+                   CONFIG_XNU_OWNER_UNION_SYSTEMOS CONFIG_XNU_OWNER_DATA_MOUNT; do
+            sed -i '' "s/^$k=y/# $k is not set/" "$OUT/.config"
+          done
+          sed -i '' 's|^CONFIG_XNU_VERIFIED_ROOT_ARCHIVE=.*|# CONFIG_XNU_VERIFIED_ROOT_ARCHIVE is not set|' "$OUT/.config"
+          python3 - ../UniXNU-device/board.toml <<'PY'
+          import sys
+          p = sys.argv[1]
+          s = open(p).read()
+          s = s.replace('  "build-pagani-verified-root-probe.py --component os --include-systemos",\n', '')
+          open(p, 'w').write(s)
+          PY
+
+      - name: port overlays
+        working-directory: UniXNU
+        run: |
+          for f in "$GITHUB_WORKSPACE"/ci/overlay/scripts/*.py; do
+            cp -v "$f" ../UniXNU-device/scripts/
+          done
 
       - name: status
         working-directory: UniXNU
@@ -113,6 +129,16 @@ jobs:
         working-directory: UniXNU
         run: |
           ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS
+
+      - name: trust cache bundle
+        working-directory: UniXNU
+        run: |
+          # board.toml pins trust_cache_sha256 = 7416ca4f..., which is the bundle of the
+          # static and the SystemOS cryptex trust cache of iPad7,1 21H461.
+          python3 scripts/bundle-ipsw-trust.py "$GITHUB_WORKSPACE/piano-trust.bundle" \
+            out/ipsw/21H461/044-76040-038.dmg.trustcache \
+            out/ipsw/21H461/044-76034-038.dmg.trustcache
+          sha256sum "$GITHUB_WORKSPACE/piano-trust.bundle"
 
       - name: build kernel
         working-directory: UniXNU
@@ -134,7 +160,7 @@ jobs:
         run: |
           ./unixnu build payload -D ../UniXNU-device $DEVICE_ARGS \
             --unique-chip-id "$UNIXNU_UNIQUE_CHIP_ID" \
-            --trust-cache "$OUT/../../../ipsw/21H461/044-76040-038.dmg.trustcache" \
+            --trust-cache "$GITHUB_WORKSPACE/piano-trust.bundle" \
             --dtb "$GITHUB_WORKSPACE/ci/inputs/piano-live.dtb"
 
       - name: pack boot image
@@ -152,7 +178,8 @@ jobs:
                    $OUT/payload/payload.img $OUT/payload/payload.json \
                    $OUT/boot/boot.img $OUT/boot/boot.json \
                    $OUT/package/Build/Out/AARCH64-DEBUG/UniXNU.efi \
-                   ../piano-uefi/deps/Mu-Silicium/Build/pianoPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd; do
+                   ../piano-uefi/deps/Mu-Silicium/Build/pianoPkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd \
+                   "$GITHUB_WORKSPACE/piano-trust.bundle"; do
             [ -f "$f" ] && cp -v "$f" "$GITHUB_WORKSPACE/out-image/" || true
           done
           cp -v status.json "$GITHUB_WORKSPACE/out-image/" || true
@@ -167,7 +194,7 @@ jobs:
           TAG="image-${GITHUB_RUN_NUMBER}"
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
             --title "piano image ${GITHUB_RUN_NUMBER}" \
-            --notes "seed ${{ inputs.seed }}, owner_data ${{ inputs.owner_data }}, commit ${GITHUB_SHA:0:7}" || true
+            --notes "seed ${{ inputs.seed }}, bringup ${{ inputs.bringup }}, commit ${GITHUB_SHA:0:7}" || true
           gh release upload "$TAG" "$GITHUB_WORKSPACE"/out-image/* --repo "$GITHUB_REPOSITORY" --clobber || true
 
       - name: upload workflow artifacts

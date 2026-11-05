@@ -150,6 +150,16 @@ jobs:
         run: |
           ./unixnu build package -D ../UniXNU-device $DEVICE_ARGS
 
+      - name: diagnose component failure
+        if: failure()
+        working-directory: UniXNU
+        run: |
+          cd "$OUT/tree"
+          KC="$GITHUB_WORKSPACE/UniXNU/out/ipsw/21H461/kernelcache.decompressed"
+          echo '=== build-pagani-peripherals.py'
+          python3 scripts/build-pagani-peripherals.py --kernelcache "$KC" 2>&1 | tail -60 || true
+          echo '=== build-stage7-driver.py PaganiInput'
+          python3 scripts/build-stage7-driver.py PaganiInput 2>&1 | tail -60 || true
       - name: collect results
         if: always()
         working-directory: UniXNU
