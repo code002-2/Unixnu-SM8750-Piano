@@ -1,4 +1,4 @@
-name: kernel
+﻿name: kernel
 
 # macOS-only stages of the Xiaomi Pad 8 Pro (piano) UniXNU port.
 # Linux cannot finish this port: the community components call hdiutil/diskutil,
@@ -115,6 +115,15 @@ jobs:
           grep -n 'VERIFIED_ROOT\|OWNER_' "$OUT/.config"
           sed -n '/^archives = \[/,/^\]/p' ../UniXNU-device/board.toml
 
+      - name: port overlays
+        working-directory: UniXNU
+        run: |
+          # The device repository does not carry the board scripts its component
+          # recipes call (they live in the 13T port this repository was cloned from).
+          for f in "$GITHUB_WORKSPACE"/ci/overlay/scripts/*.py; do
+            cp -v "$f" ../UniXNU-device/scripts/
+          done
+          ls ../UniXNU-device/scripts
       - name: status
         working-directory: UniXNU
         run: |
