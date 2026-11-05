@@ -1,0 +1,145 @@
+name: kernel
+
+# macOS-only stages of the Xiaomi Pad 8 Pro (piano) UniXNU port.
+# Linux cannot finish this port: the community components call hdiutil/diskutil,
+# llvm-objcopy with Mach-O section removal and brew-provided tools.
+# Results are published to a GitHub Release because this repository is private.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'platform seed for the ADT (hex, e.g. 0x0123456789abcdef)'
+        default: '0x0123456789abcdef'
+        required: true
+      jobs:
+        description: 'parallel jobs'
+        default: '4'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kernel:
+    runs-on: macos-26
+    timeout-minutes: 300
+    env:
+      UNIXNU_UNIQUE_CHIP_ID: ${{ inputs.seed }}
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      DEVICE_ARGS: '--local-drivers ../UniXNU-device/modules/Pagani/drivers --local-kits ../UniXNU-device/modules/Pagani/kits'
+    steps:
+      - name: checkout this repository (build inputs)
+        uses: actions/checkout@v4
+        with:
+          path: ci
+
+      - name: checkout UniXNU main fork (community component catalog)
+        uses: actions/checkout@v4
+        with:
+          repository: IssacL04/UniXNU_Enc3l
+          path: UniXNU
+          submodules: recursive
+
+      - name: checkout device repository
+        uses: actions/checkout@v4
+        with:
+          repository: xiaomi-pad-8-pro-development/android_device_xiaomi_piano-unixnu
+          path: UniXNU-device
+          submodules: recursive
+
+      - name: install tools
+        run: |
+          brew install dtc llvm lld cmake mtools lzfse nasm
+          ok=1
+          for t in clang xcodebuild make git ninja cmake dtc fdtget fdtput mformat mcopy lzfse; do
+            command -v "$t" >/dev/null || { echo "missing tool: $t"; ok=0; }
+          done
+          for t in lld-link llvm-lib llvm-rc llvm-nm llvm-objcopy; do
+            [ -f "/opt/homebrew/opt/llvm/bin/$t" ] || [ -f "/opt/homebrew/opt/lld/bin/$t" ] || { echo "missing tool: $t"; ok=0; }
+          done
+          [ "$ok" = 1 ]
+
+      - name: show host
+        run: |
+          sw_vers
+          xcodebuild -version
+          echo "cpus: $(sysctl -n hw.ncpu) arch: $(uname -m)"
+
+      - name: local build configuration
+        working-directory: UniXNU
+        run: |
+          cat > unixnu.local.toml <<EOF
+          [build]
+          device = "../UniXNU-device"
+          dtb = "$GITHUB_WORKSPACE/ci/inputs/piano-live.dtb"
+          jobs = ${{ inputs.jobs }}
+          target = "DEBUG"
+          EOF
+          cat unixnu.local.toml
+
+      - name: defconfig
+        working-directory: UniXNU
+        run: |
+          ./unixnu defconfig piano_defconfig -D ../UniXNU-device $DEVICE_ARGS
+
+      - name: status
+        working-directory: UniXNU
+        run: |
+          ./unixnu status --json -D ../UniXNU-device $DEVICE_ARGS | tee status.json
+
+      - name: fetch sources
+        working-directory: UniXNU
+        run: |
+          ./unixnu fetch
+
+      - name: fetch IPSW components
+        working-directory: UniXNU
+        run: |
+          ./unixnu ipsw info -D ../UniXNU-device $DEVICE_ARGS
+          ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS
+
+      - name: build kernel
+        working-directory: UniXNU
+        run: |
+          ./unixnu build kernel -D ../UniXNU-device $DEVICE_ARGS
+
+      - name: build package
+        working-directory: UniXNU
+        run: |
+          ./unixnu build package -D ../UniXNU-device $DEVICE_ARGS
+
+      - name: collect results
+        if: always()
+        working-directory: UniXNU
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out-kernel"
+          find out/piano -name 'kernel.macho*' -exec cp -v {} "$GITHUB_WORKSPACE/out-kernel/" \; || true
+          find out/piano -name '*.efi' -path '*Out*' -exec cp -v {} "$GITHUB_WORKSPACE/out-kernel/" \; || true
+          cp -v status.json "$GITHUB_WORKSPACE/out-kernel/" || true
+          tar czf "$GITHUB_WORKSPACE/out-kernel/logs.tar.gz" out/piano/*/*/logs 2>/dev/null || true
+          cd "$GITHUB_WORKSPACE/out-kernel" && sha256sum * > SHA256SUMS.txt 2>/dev/null || true
+          ls -l "$GITHUB_WORKSPACE/out-kernel"
+
+      - name: publish release
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="kernel-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --title "piano kernel ${GITHUB_RUN_NUMBER}" \
+            --notes "run ${GITHUB_RUN_NUMBER} on ${GITHUB_SHA:0:7}; seed ${{ inputs.seed }}" || true
+          gh release upload "$TAG" "$GITHUB_WORKSPACE"/out-kernel/* --repo "$GITHUB_REPOSITORY" --clobber || true
+
+      - name: upload workflow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: piano-kernel
+          if-no-files-found: warn
+          retention-days: 3
+          path: out-kernel/**
