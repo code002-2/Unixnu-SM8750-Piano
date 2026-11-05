@@ -15,6 +15,10 @@ on:
       jobs:
         description: 'parallel jobs'
         default: '4'
+      bringup:
+        description: 'bring-up profile: skip the owner-root/verified-root path that needs the original OS image and a Data seed'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -31,6 +35,7 @@ jobs:
       UNIXNU_UNIQUE_CHIP_ID: ${{ inputs.seed }}
       HOMEBREW_NO_AUTO_UPDATE: '1'
       DEVICE_ARGS: '--local-drivers ../UniXNU-device/modules/Pagani/drivers --local-kits ../UniXNU-device/modules/Pagani/kits'
+      OUT: out/piano/ipados-17.7.11-21H461/piano
     steps:
       - name: checkout this repository (build inputs)
         uses: actions/checkout@v4
@@ -86,6 +91,30 @@ jobs:
         run: |
           ./unixnu defconfig piano_defconfig -D ../UniXNU-device $DEVICE_ARGS
 
+      - name: bring-up profile
+        if: ${{ inputs.bringup == true }}
+        working-directory: UniXNU
+        run: |
+          # The owner-root/verified-root path needs the original OS image, a Data seed
+          # (make-data-seed.py) and the signed policy bundle; none of them is in a
+          # repository. The bring-up profile boots the kernel without that path, so
+          # the first RAM boot can be attempted with what the repositories carry.
+          for k in CONFIG_XNU_VERIFIED_ROOT_PROBE CONFIG_XNU_OWNER_ROOT_AUDIT CONFIG_XNU_OWNER_ROOT_TRUST \
+                   CONFIG_XNU_OWNER_CACHE_MOUNT CONFIG_XNU_OWNER_CACHE_STARTUP CONFIG_XNU_OWNER_BOOT_MANIFEST \
+                   CONFIG_XNU_OWNER_UNION_SYSTEMOS CONFIG_XNU_OWNER_DATA_MOUNT; do
+            sed -i '' "s/^$k=y/# $k is not set/" "$OUT/.config"
+          done
+          sed -i '' 's|^CONFIG_XNU_VERIFIED_ROOT_ARCHIVE=.*|# CONFIG_XNU_VERIFIED_ROOT_ARCHIVE is not set|' "$OUT/.config"
+          python3 - ../UniXNU-device/board.toml <<'PY'
+          import sys
+          p = sys.argv[1]
+          s = open(p).read()
+          s = s.replace('  "build-pagani-verified-root-probe.py --component os --include-systemos",\n', '')
+          open(p, 'w').write(s)
+          PY
+          grep -n 'VERIFIED_ROOT\|OWNER_' "$OUT/.config"
+          sed -n '/^archives = \[/,/^\]/p' ../UniXNU-device/board.toml
+
       - name: status
         working-directory: UniXNU
         run: |
@@ -121,7 +150,7 @@ jobs:
           find out/piano -name '*.efi' -path '*Out*' -exec cp -v {} "$GITHUB_WORKSPACE/out-kernel/" \; || true
           cp -v status.json "$GITHUB_WORKSPACE/out-kernel/" || true
           tar czf "$GITHUB_WORKSPACE/out-kernel/logs.tar.gz" out/piano/*/*/logs 2>/dev/null || true
-          cd "$GITHUB_WORKSPACE/out-kernel" && sha256sum * > SHA256SUMS.txt 2>/dev/null || true
+          (cd "$GITHUB_WORKSPACE/out-kernel" && sha256sum * > SHA256SUMS.txt) || true
           ls -l "$GITHUB_WORKSPACE/out-kernel"
 
       - name: publish release
@@ -132,7 +161,7 @@ jobs:
           TAG="kernel-${GITHUB_RUN_NUMBER}"
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
             --title "piano kernel ${GITHUB_RUN_NUMBER}" \
-            --notes "run ${GITHUB_RUN_NUMBER} on ${GITHUB_SHA:0:7}; seed ${{ inputs.seed }}" || true
+            --notes "run ${GITHUB_RUN_NUMBER} on ${GITHUB_SHA:0:7}; seed ${{ inputs.seed }}; bringup ${{ inputs.bringup }}" || true
           gh release upload "$TAG" "$GITHUB_WORKSPACE"/out-kernel/* --repo "$GITHUB_REPOSITORY" --clobber || true
 
       - name: upload workflow artifacts
