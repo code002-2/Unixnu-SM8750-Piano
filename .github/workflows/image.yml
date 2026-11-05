@@ -32,6 +32,8 @@ jobs:
     env:
       UNIXNU_UNIQUE_CHIP_ID: ${{ inputs.seed }}
       HOMEBREW_NO_AUTO_UPDATE: '1'
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       DEVICE_ARGS: '--local-drivers ../UniXNU-device/modules/Pagani/drivers --local-kits ../UniXNU-device/modules/Pagani/kits'
       OUT: out/piano/ipados-17.7.11-21H461/piano
     steps:
