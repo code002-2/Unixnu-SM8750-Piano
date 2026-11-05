@@ -64,6 +64,9 @@ jobs:
       - name: install tools
         run: |
           brew install dtc llvm lld cmake mtools lzfse nasm
+          # keg-only Homebrew LLVM: the kernel recipes call llvm-objdump/llvm-nm by name
+          echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
+          echo "/opt/homebrew/opt/lld/bin" >> $GITHUB_PATH
           bash piano-uefi/tools/setup-deps.sh
 
       - name: show host
