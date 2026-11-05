@@ -99,17 +99,18 @@ jobs:
         if: ${{ inputs.bringup == true }}
         working-directory: UniXNU
         run: |
-          for k in CONFIG_XNU_VERIFIED_ROOT_PROBE CONFIG_XNU_OWNER_ROOT_AUDIT CONFIG_XNU_OWNER_ROOT_TRUST \
+          # The verified-root probe stays enabled so the kernel force-loads the archive,
+          # but the owner root/cache/manifest machinery needs the signed policy bundle.
+          for k in CONFIG_XNU_OWNER_ROOT_AUDIT CONFIG_XNU_OWNER_ROOT_TRUST \
                    CONFIG_XNU_OWNER_CACHE_MOUNT CONFIG_XNU_OWNER_CACHE_STARTUP CONFIG_XNU_OWNER_BOOT_MANIFEST \
                    CONFIG_XNU_OWNER_UNION_SYSTEMOS CONFIG_XNU_OWNER_DATA_MOUNT; do
             sed -i '' "s/^$k=y/# $k is not set/" "$OUT/.config"
           done
-          sed -i '' 's|^CONFIG_XNU_VERIFIED_ROOT_ARCHIVE=.*|# CONFIG_XNU_VERIFIED_ROOT_ARCHIVE is not set|' "$OUT/.config"
           python3 - ../UniXNU-device/board.toml <<'PY'
           import sys
           p = sys.argv[1]
           s = open(p).read()
-          s = s.replace('  "build-pagani-verified-root-probe.py --component os --include-systemos",\n', '')
+          s = s.replace('  "build-pagani-verified-root-probe.py --component os --include-systemos",\n', '  "build-bringup-verified-root.py",\n')
           open(p, 'w').write(s)
           PY
 
