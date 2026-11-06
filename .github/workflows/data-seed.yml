@@ -1,0 +1,70 @@
+name: data-seed
+
+# The Data seed is installation state and can only be made where APFS can be formatted:
+# make-data-seed.py drives hdiutil + newfs_apfs and then seed-data-grow.py. Linux has no mkfs.apfs,
+# so this job publishes the DBRDISK1 seed the owner-Data kernel boots with.
+on:
+  workflow_dispatch:
+    inputs:
+      gib:
+        description: 'Logical size of the Data volume'
+        default: '4'
+      build:
+        description: 'iOS build stamped into the migration state'
+        default: '21H461'
+  push:
+    paths:
+      - '.github/workflows/data-seed.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  seed:
+    runs-on: macos-14
+    timeout-minutes: 120
+    steps:
+      - name: Check out the port
+        uses: actions/checkout@v4
+        with:
+          repository: IssacL04/UniXNU_Enc3l
+          path: unixnu
+          fetch-depth: 1
+
+      - name: Fetch the 17.7.11 restore image
+        run: |
+          set -euo pipefail
+          curl -L --retry 3 --retry-delay 5 -o restore.ipsw \
+            "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
+          unzip -o restore.ipsw "044-76040-038.dmg"
+          ls -l 044-76040-038.dmg
+
+      - name: Build the Data seed
+        run: |
+          set -euo pipefail
+          mkdir -p os-mnt
+          hdiutil attach -nobrowse -readonly -mountpoint "$PWD/os-mnt" 044-76040-038.dmg
+          hdiutil info | tail -5
+          ls os-mnt | head
+          python3 unixnu/scripts/make-data-seed.py os-mnt data.dbrdisk \
+            --gib "${{ inputs.gib || '4' }}" --build "${{ inputs.build || '21H461' }}" --skip-setup
+          hdiutil detach "$PWD/os-mnt" || true
+          ls -l data.dbrdisk
+          shasum -a 256 data.dbrdisk | tee data.dbrdisk.sha256
+
+      - name: Upload the seed as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-seed
+          path: |
+            data.dbrdisk
+            data.dbrdisk.sha256
+          if-no-files-found: error
+
+      - name: Publish the seed to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view data-seed >/dev/null 2>&1 || \
+            gh release create data-seed --title "Data seed" --notes "APFS Data seed (DBRDISK1) for the piano iPadOS bring-up"
+          gh release upload data-seed data.dbrdisk data.dbrdisk.sha256 --clobber
