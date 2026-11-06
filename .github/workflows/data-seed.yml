@@ -85,7 +85,7 @@ jobs:
           if marker not in text:
               raise SystemExit('attach marker not found')
           text = path.read_text().replace(marker, marker + (
-              "        info = plistlib.loads(subprocess.check_output(['diskutil', 'info', '-plist', str(device)]))\n"
+              "        info = plistlib.loads(subprocess.check_output(['diskutil', 'info', '-plist', str(mount)]))\n"
               "        print('Data volume UUID:', info.get('VolumeUUID'), flush=True)\n"
               "        Path('data.uuid.txt').write_text(str(info.get('VolumeUUID', '')) + '\\n')\n"), 1)
           path.write_text(text)
