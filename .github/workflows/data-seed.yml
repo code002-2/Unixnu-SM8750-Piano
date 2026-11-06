@@ -55,6 +55,24 @@ jobs:
           set -euo pipefail
           export PYTHONPATH="$PWD/drivers/drivers/PaganiDarwinBoot/Test:${PYTHONPATH:-}"
           mkdir -p os-mnt unixnu/build
+          # seed-data-grow.py runs its tools with capture_output, so a failure hides the tool's own
+          # message. Print it before the script re-raises.
+          python3 - <<'PY'
+          import pathlib
+          path = pathlib.Path('unixnu/scripts/seed-data-grow.py')
+          text = path.read_text()
+          old = "def run(*args):\n    return subprocess.run(args, check=True, capture_output=True, text=True).stdout\n"
+          new = ("def run(*args):\n"
+                 "    proc = subprocess.run(args, capture_output=True, text=True)\n"
+                 "    if proc.returncode:\n"
+                 "        print('FAILED', args, proc.returncode, proc.stdout, proc.stderr, flush=True)\n"
+                 "    proc.check_returncode()\n"
+                 "    return proc.stdout\n")
+          if old not in text:
+              raise SystemExit('run() helper not found')
+          path.write_text(text.replace(old, new, 1))
+          print('seed-data-grow.py now reports tool failures')
+          PY
           hdiutil attach -nobrowse -readonly -mountpoint "$PWD/os-mnt" 044-76040-038.dmg
           ls os-mnt | head
           python3 unixnu/scripts/make-data-seed.py os-mnt data.dbrdisk \
