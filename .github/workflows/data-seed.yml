@@ -39,7 +39,7 @@ jobs:
         with:
           repository: IssacL04/UniXNU-Pagani-Drivers
           path: drivers
-          ref: c888efd
+          ref: c888efd3ce1b817d13f28783a77cf689cb2255c9
           fetch-depth: 1
 
       - name: Fetch the 17.7.11 restore image
