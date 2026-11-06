@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           export PYTHONPATH="$PWD/drivers/drivers/PaganiDarwinBoot/Test:${PYTHONPATH:-}"
-          mkdir -p os-mnt
+          mkdir -p os-mnt unixnu/build
           hdiutil attach -nobrowse -readonly -mountpoint "$PWD/os-mnt" 044-76040-038.dmg
           ls os-mnt | head
           python3 unixnu/scripts/make-data-seed.py os-mnt data.dbrdisk \
