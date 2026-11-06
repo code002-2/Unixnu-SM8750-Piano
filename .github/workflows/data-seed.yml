@@ -90,6 +90,21 @@ jobs:
               "        Path('data.uuid.txt').write_text(str(info.get('VolumeUUID', '')) + '\\n')\n"), 1)
           path.write_text(text)
           print('make-data-seed.py records the Data volume UUID')
+          # watchdogd traps the boot with SIGTRAP as soon as one service misses its check-in, which
+          # stops the bring-up before the UI starts. Disable its launchd job in the seed.
+          text = path.read_text()
+          anchor = "            (mount / 'tmp').chmod(0o1777)\n"
+          if anchor not in text:
+              raise SystemExit('tmp chmod anchor not found')
+          text = text.replace(anchor, anchor + (
+              "            launchd_db = mount / 'db/com.apple.xpc.launchd'\n"
+              "            launchd_db.mkdir(parents=True, exist_ok=True)\n"
+              "            (launchd_db / 'disabled.plist').write_bytes(\n"
+              "                plistlib.dumps({'com.apple.watchdogd': True}, fmt=plistlib.FMT_BINARY))\n"
+              "            (launchd_db / 'overrides.plist').write_bytes(\n"
+              "                plistlib.dumps({'com.apple.watchdogd': {'Disabled': True}}, fmt=plistlib.FMT_BINARY))\n"), 1)
+          path.write_text(text)
+          print('watchdogd disabled in the seed')
           PY
           hdiutil attach -nobrowse -readonly -mountpoint "$PWD/os-mnt" 044-76040-038.dmg
           ls os-mnt | head
