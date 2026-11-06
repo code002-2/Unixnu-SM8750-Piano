@@ -80,6 +80,16 @@ jobs:
                               "        candidate.replace(args.output)\n", 1)
           path.write_text(text)
           print('make-data-seed.py creates the image at its final size')
+          # Record the volume identity the kernel configuration has to carry.
+          marker = "        device = attached['system-entities'][0]['dev-entry']\n"
+          if marker not in text:
+              raise SystemExit('attach marker not found')
+          text = path.read_text().replace(marker, marker + (
+              "        info = plistlib.loads(subprocess.check_output(['diskutil', 'info', '-plist', str(device)]))\n"
+              "        print('Data volume UUID:', info.get('VolumeUUID'), flush=True)\n"
+              "        Path('data.uuid.txt').write_text(str(info.get('VolumeUUID', '')) + '\\n')\n"), 1)
+          path.write_text(text)
+          print('make-data-seed.py records the Data volume UUID')
           PY
           hdiutil attach -nobrowse -readonly -mountpoint "$PWD/os-mnt" 044-76040-038.dmg
           ls os-mnt | head
@@ -96,12 +106,14 @@ jobs:
           path: |
             data.dbrdisk
             data.dbrdisk.sha256
+            data.uuid.txt
           if-no-files-found: error
 
       - name: Publish the seed to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           gh release view data-seed >/dev/null 2>&1 || \
             gh release create data-seed --title "Data seed" --notes "APFS Data seed (DBRDISK1) for the piano iPadOS bring-up"
-          gh release upload data-seed data.dbrdisk data.dbrdisk.sha256 --clobber
+          gh release upload data-seed data.dbrdisk data.dbrdisk.sha256 data.uuid.txt --clobber
