@@ -31,6 +31,15 @@ jobs:
           path: unixnu
           fetch-depth: 1
 
+      # make-data-seed.py imports packed_ramdisk from the drivers tree, which the port does not
+      # track: it ships with the device repository.
+      - name: Check out the device repository
+        uses: actions/checkout@v4
+        with:
+          repository: xiaomi-pad-8-pro-development/android_device_xiaomi_piano-unixnu
+          path: device
+          fetch-depth: 1
+
       - name: Fetch the 17.7.11 restore image
         run: |
           set -euo pipefail
@@ -42,9 +51,9 @@ jobs:
       - name: Build the Data seed
         run: |
           set -euo pipefail
+          export PYTHONPATH="$PWD/device/modules/Pagani/drivers/PaganiDarwinBoot/Test:${PYTHONPATH:-}"
           mkdir -p os-mnt
           hdiutil attach -nobrowse -readonly -mountpoint "$PWD/os-mnt" 044-76040-038.dmg
-          hdiutil info | tail -5
           ls os-mnt | head
           python3 unixnu/scripts/make-data-seed.py os-mnt data.dbrdisk \
             --gib "${{ inputs.gib || '4' }}" --build "${{ inputs.build || '21H461' }}" --skip-setup
