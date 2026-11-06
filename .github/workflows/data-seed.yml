@@ -70,7 +70,16 @@ jobs:
                  "    return proc.stdout\n")
           if old not in text:
               raise SystemExit('run() helper not found')
-          path.write_text(text.replace(old, new, 1))
+          text = text.replace(old, new, 1)
+          # The APFS container's physical store is a partition of the attached image (diskNs1), so
+          # matching it against the whole-disk identifier never found a container.
+          old_store = "if any(s['DeviceIdentifier'] == store for s in entry.get('PhysicalStores', [])):"
+          new_store = ("if any(s['DeviceIdentifier'] == store or "
+                       "s['DeviceIdentifier'].startswith(store + 's') for s in entry.get('PhysicalStores', [])):")
+          if old_store not in text:
+              raise SystemExit('physical store match not found')
+          text = text.replace(old_store, new_store, 1)
+          path.write_text(text)
           print('seed-data-grow.py now reports tool failures')
           PY
           hdiutil attach -nobrowse -readonly -mountpoint "$PWD/os-mnt" 044-76040-038.dmg
