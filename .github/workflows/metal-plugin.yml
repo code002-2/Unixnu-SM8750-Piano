@@ -177,6 +177,17 @@ jobs:
             python3 scripts/make-gpu-addon.py build/NativeAdrenoMetal.gpuaddon
           fi
 
+      # The plugin alone only runs its own tests: --publish hands the native Metal device back to
+      # backboardd's discovery so the render server composites through it (add-gpu-plugin-data.py).
+      # The icons also need the iconservices agent enabled in the seed's launchd policy.
+      - name: stage the plugin into a Data seed
+        working-directory: UniXNU
+        run: |
+          python3 scripts/add-gpu-plugin-data.py --publish \
+            --enable-jobs com.apple.iconservices.iconservicesagent \
+            "$GITHUB_WORKSPACE/ci/inputs/data.dbrdisk" build/gpu-data.dbr
+          ls -l build/gpu-data.dbr
+
       - name: bundle the original trust modules
         working-directory: UniXNU
         run: |
@@ -196,6 +207,7 @@ jobs:
           cp UniXNU/build/adreno-metal-plugin/owner-trust.bundle out/ || true
           cp UniXNU/build/adreno-metal-plugin/owner-trust.json out/ || true
           cp UniXNU/build/adreno-metal-plugin/trust.json out/ || true
+          cp UniXNU/build/gpu-data.dbr out/ || true
           ls -l out
 
       - name: upload workflow artifacts
