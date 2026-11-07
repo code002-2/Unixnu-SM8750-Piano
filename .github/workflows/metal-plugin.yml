@@ -83,11 +83,14 @@ jobs:
         working-directory: UniXNU
         run: ./unixnu defconfig piano_defconfig -D ../UniXNU-device $DEVICE_ARGS
 
-      - name: fetch IPSW trust modules
+      - name: fetch the IPSW components
         working-directory: UniXNU
         run: |
           ./unixnu ipsw info -D ../UniXNU-device $DEVICE_ARGS
           ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS
+          # The shader prime list is built from the OS volume, which the device defaults do not fetch.
+          ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS --all || ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS
+          ls -S out/ipsw/*/ | head -8
 
       - name: bootstrap the pinned Adreno toolchain
         working-directory: UniXNU
@@ -148,17 +151,29 @@ jobs:
       - name: build the shader prime list from the OS image
         working-directory: UniXNU
         run: |
-          DMG=out/ipsw/21H461/044-76040-038.dmg
-          MNT=$(hdiutil attach -nobrowse -readonly "$DMG" | awk '{for(i=1;i<=NF;i++) if ($i ~ /^\/Volumes\//) print $i}' | head -1)
-          echo "mounted: $MNT"
-          find "$MNT" -name '*.metallib' | sed "s|^$MNT||" | sort > build/prime-list.txt
-          hdiutil detach "$MNT" >/dev/null
+          DMG=$(ls -S out/ipsw/*/*.dmg 2>/dev/null | head -1)
+          echo "image: ${DMG:-none}"
+          : > build/prime-list.txt
+          if [ -n "$DMG" ]; then
+            MNT=$(hdiutil attach -nobrowse -readonly "$DMG" | awk '{for(i=1;i<=NF;i++) if ($i ~ /^\/Volumes\//) print $i}' | head -1)
+            echo "mounted: $MNT"
+            if [ -n "$MNT" ]; then
+              find "$MNT" -name '*.metallib' | sed "s|^$MNT||" | sort > build/prime-list.txt
+              hdiutil detach "$MNT" >/dev/null || true
+            fi
+          fi
           echo "metallib entries: $(wc -l < build/prime-list.txt)"
           head -5 build/prime-list.txt
 
       - name: pack the GPU addon
         working-directory: UniXNU
-        run: python3 scripts/make-gpu-addon.py --prime-list build/prime-list.txt build/NativeAdrenoMetal.gpuaddon
+        run: |
+          if [ -s build/prime-list.txt ]; then
+            python3 scripts/make-gpu-addon.py --prime-list build/prime-list.txt build/NativeAdrenoMetal.gpuaddon
+          else
+            echo "::warning::no prime list; the render server will have to scan on its own"
+            python3 scripts/make-gpu-addon.py build/NativeAdrenoMetal.gpuaddon
+          fi
 
       - name: bundle the original trust modules
         working-directory: UniXNU
