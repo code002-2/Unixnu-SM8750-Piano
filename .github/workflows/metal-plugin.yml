@@ -88,9 +88,11 @@ jobs:
         run: |
           ./unixnu ipsw info -D ../UniXNU-device $DEVICE_ARGS
           ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS
-          # The shader prime list is built from the OS volume, which the device defaults do not fetch.
-          ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS --all || ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS
-          ls -S out/ipsw/*/ | head -8
+          # The shader prime list is built from the OS volume, which the device defaults do not list.
+          for component in OS Cryptex1,SystemOS; do
+            ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS "$component" || echo "component $component unavailable"
+          done
+          ls -S out/ipsw/*/ 2>/dev/null | head -8
 
       - name: bootstrap the pinned Adreno toolchain
         working-directory: UniXNU
