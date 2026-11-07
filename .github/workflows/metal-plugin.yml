@@ -79,9 +79,40 @@ jobs:
           ./unixnu ipsw info -D ../UniXNU-device $DEVICE_ARGS
           ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS
 
+      - name: bootstrap the Mesa toolchain for Turnip
+        working-directory: UniXNU
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys
+          from pathlib import Path
+          root = Path.cwd()
+          pins = json.loads((root / 'scripts/data/adreno-compiler-inputs.json').read_text())
+          mesa = root / '.cache/mesa-work'
+          if not (mesa / '.git').exists():
+              mesa.mkdir(parents=True)
+              subprocess.run(['git', 'init', '-q', str(mesa)], check=True)
+              subprocess.run(['git', '-C', str(mesa), 'fetch', '--depth=1',
+                              pins['mesa'].get('mirror', pins['mesa']['repository']),
+                              pins['mesa']['commit']], check=True)
+              subprocess.run(['git', '-C', str(mesa), 'checkout', '--detach', 'FETCH_HEAD'], check=True)
+              for patch in pins['patches']:
+                  subprocess.run(['git', '-C', str(mesa), 'apply', str(root / patch)], check=True)
+          venv = root / '.cache/mesa-venv'
+          if not (venv / 'bin/python').is_file():
+              subprocess.run([sys.executable, '-m', 'venv', str(venv)], check=True)
+          subprocess.run([str(venv / 'bin/python'), '-m', 'pip', 'install', '-r',
+                          str(root / 'scripts/requirements-adreno-compiler.txt')], check=True)
+          PY
+
+      # build-boot-runtime.py builds Turnip (pinned Mesa checkout + patches + venv), then the
+      # owner-signed plugin, then packs the GPU addon; it is reached through the payload step.
+      - name: build Turnip for iOS
+        working-directory: UniXNU
+        run: python3 scripts/build-turnip-darwin.py --target ios
+
       - name: build the owner-signed Metal plugin
         working-directory: UniXNU
-        run: python3 scripts/build-adreno-metal-plugin.py --chip a830
+        run: python3 scripts/build-adreno-metal-plugin.py --target ios --no-replay
 
       - name: bundle the original trust modules
         working-directory: UniXNU
@@ -90,10 +121,6 @@ jobs:
           python3 ../UniXNU-device/scripts/prepare-original-trust.py --tree . \
             --inputs out/ipsw/21H461 \
             --output build/original-static-system-trust/original-static-system.bundle
-
-      - name: pack the GPU addon
-        working-directory: UniXNU
-        run: python3 scripts/make-gpu-addon.py build/NativeAdrenoMetal.gpuaddon
 
       - name: build the owner trust bundle
         working-directory: UniXNU
