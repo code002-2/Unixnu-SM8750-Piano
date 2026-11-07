@@ -54,6 +54,11 @@ jobs:
           # macOS ships bison 2.3 and Mesa needs at least 3.8
           echo "/opt/homebrew/opt/bison/bin" >> $GITHUB_PATH
 
+      - name: install the Rust iOS target
+        run: |
+          rustup target add aarch64-apple-ios
+          rustup target list --installed
+
       - name: show host
         run: |
           sw_vers
