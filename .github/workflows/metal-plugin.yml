@@ -143,9 +143,22 @@ jobs:
         working-directory: UniXNU
         run: python3 scripts/build-adreno-metal-plugin.py --target ios --no-replay
 
+      # The render server cannot scan the OS image itself (it is sandboxed), so it only compiles the
+      # libraries this list names: docs/zh/porting/gpu.md, "warm the shader cache".
+      - name: build the shader prime list from the OS image
+        working-directory: UniXNU
+        run: |
+          DMG=out/ipsw/21H461/044-76040-038.dmg
+          MNT=$(hdiutil attach -nobrowse -readonly "$DMG" | awk '{for(i=1;i<=NF;i++) if ($i ~ /^\/Volumes\//) print $i}' | head -1)
+          echo "mounted: $MNT"
+          find "$MNT" -name '*.metallib' | sed "s|^$MNT||" | sort > build/prime-list.txt
+          hdiutil detach "$MNT" >/dev/null
+          echo "metallib entries: $(wc -l < build/prime-list.txt)"
+          head -5 build/prime-list.txt
+
       - name: pack the GPU addon
         working-directory: UniXNU
-        run: python3 scripts/make-gpu-addon.py build/NativeAdrenoMetal.gpuaddon
+        run: python3 scripts/make-gpu-addon.py --prime-list build/prime-list.txt build/NativeAdrenoMetal.gpuaddon
 
       - name: bundle the original trust modules
         working-directory: UniXNU
