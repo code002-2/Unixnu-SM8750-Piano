@@ -144,10 +144,6 @@ jobs:
         working-directory: UniXNU
         run: python3 scripts/build-turnip-darwin.py --target ios
 
-      - name: build the owner-signed Metal plugin
-        working-directory: UniXNU
-        run: python3 scripts/build-adreno-metal-plugin.py --target ios --no-replay
-
       # The render server cannot scan the OS image itself (it is sandboxed), so it only compiles the
       # libraries this list names: docs/zh/porting/gpu.md, "warm the shader cache".
       - name: build the shader prime list from the OS image
@@ -166,6 +162,10 @@ jobs:
           fi
           echo "metallib entries: $(wc -l < build/prime-list.txt)"
           head -5 build/prime-list.txt
+
+      - name: build the owner-signed Metal plugin
+        working-directory: UniXNU
+        run: python3 scripts/build-adreno-metal-plugin.py --target ios --no-replay
 
       - name: pack the GPU addon
         working-directory: UniXNU
