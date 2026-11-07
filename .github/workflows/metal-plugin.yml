@@ -81,33 +81,52 @@ jobs:
           ./unixnu ipsw info -D ../UniXNU-device $DEVICE_ARGS
           ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS
 
-      - name: bootstrap the Mesa toolchain for Turnip
+      - name: bootstrap the pinned Adreno toolchain
         working-directory: UniXNU
         run: |
           python3 - <<'PY'
           import json, subprocess, sys
           from pathlib import Path
+
           root = Path.cwd()
+
+
+          def run(cmd):
+              subprocess.run([str(c) for c in cmd], check=True)
+
+
+          def checkout(path, pin):
+              if not (path / '.git').exists():
+                  path.mkdir(parents=True, exist_ok=True)
+                  run(['git', 'init', '-q', str(path)])
+                  run(['git', '-C', str(path), 'fetch', '--depth=1',
+                       pin.get('mirror', pin['repository']), pin['commit']])
+                  run(['git', '-C', str(path), 'checkout', '--detach', 'FETCH_HEAD'])
+                  return True
+              head = subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip()
+              if head != pin['commit']:
+                  raise SystemExit(f'{path}: source revision differs from its pin')
+              return False
+
+
           pins = json.loads((root / 'scripts/data/adreno-compiler-inputs.json').read_text())
           mesa = root / '.cache/mesa-work'
-          if not (mesa / '.git').exists():
-              mesa.mkdir(parents=True)
-              subprocess.run(['git', 'init', '-q', str(mesa)], check=True)
-              subprocess.run(['git', '-C', str(mesa), 'fetch', '--depth=1',
-                              pins['mesa'].get('mirror', pins['mesa']['repository']),
-                              pins['mesa']['commit']], check=True)
-              subprocess.run(['git', '-C', str(mesa), 'checkout', '--detach', 'FETCH_HEAD'], check=True)
+          if checkout(mesa, pins['mesa']):
               for patch in pins['patches']:
-                  subprocess.run(['git', '-C', str(mesa), 'apply', str(root / patch)], check=True)
+                  run(['git', '-C', str(mesa), 'apply', str(root / patch)])
+
+          translator = json.loads(
+              (root / 'scripts/data/gpu-metal-vulkan-inputs.json').read_text())['translator']
+          checkout(root / '.cache/gpu-reference/metal2vulkan', translator)
+
           venv = root / '.cache/mesa-venv'
           if not (venv / 'bin/python').is_file():
-              subprocess.run([sys.executable, '-m', 'venv', str(venv)], check=True)
-          subprocess.run([str(venv / 'bin/python'), '-m', 'pip', 'install', '-r',
-                          str(root / 'scripts/requirements-adreno-compiler.txt')], check=True)
+              run([sys.executable, '-m', 'venv', str(venv)])
+          run([venv / 'bin/python', '-m', 'pip', 'install', '-r',
+               str(root / 'scripts/requirements-adreno-compiler.txt')])
+          print('toolchain ready: mesa', pins['mesa']['commit'][:12], 'translator', translator['commit'][:12])
           PY
 
-      # build-boot-runtime.py builds Turnip (pinned Mesa checkout + patches + venv), then the
-      # owner-signed plugin, then packs the GPU addon; it is reached through the payload step.
       - name: build Turnip for iOS
         working-directory: UniXNU
         run: python3 scripts/build-turnip-darwin.py --target ios
