@@ -1,0 +1,116 @@
+name: metal-plugin
+
+# Userspace half of the A830 port: the NativeAdrenoMetal bundle can only be built with the iOS SDK
+# (xcrun --sdk iphoneos), so it runs here and publishes its artifacts for the local payload build.
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'parallel jobs'
+        default: '4'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: metal-plugin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plugin:
+    runs-on: macos-26
+    timeout-minutes: 240
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DEVICE_ARGS: '--local-drivers ../UniXNU-device/modules/Pagani/drivers --local-kits ../UniXNU-device/modules/Pagani/kits'
+      OUT: out/piano/ipados-17.7.11-21H461/piano
+    steps:
+      - name: checkout this repository (build inputs)
+        uses: actions/checkout@v4
+        with:
+          path: ci
+
+      - name: checkout UniXNU main fork (community component catalog)
+        uses: actions/checkout@v4
+        with:
+          repository: IssacL04/UniXNU_Enc3l
+          path: UniXNU
+          submodules: recursive
+
+      - name: checkout device repository
+        uses: actions/checkout@v4
+        with:
+          repository: xiaomi-pad-8-pro-development/android_device_xiaomi_piano-unixnu
+          path: UniXNU-device
+          submodules: recursive
+
+      - name: install tools
+        run: |
+          brew install dtc llvm lld cmake mtools lzfse nasm
+          echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
+          echo "/opt/homebrew/opt/lld/bin" >> $GITHUB_PATH
+
+      - name: show host
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: local build configuration
+        working-directory: UniXNU
+        run: |
+          cat > unixnu.local.toml <<EOF
+          [build]
+          device = "../UniXNU-device"
+          dtb = "$GITHUB_WORKSPACE/ci/inputs/piano-live.dtb"
+          jobs = ${{ inputs.jobs }}
+          target = "DEBUG"
+          EOF
+          cat unixnu.local.toml
+
+      - name: defconfig
+        working-directory: UniXNU
+        run: ./unixnu defconfig piano_defconfig -D ../UniXNU-device $DEVICE_ARGS
+
+      - name: fetch IPSW trust modules
+        working-directory: UniXNU
+        run: |
+          ./unixnu ipsw info -D ../UniXNU-device $DEVICE_ARGS
+          ./unixnu ipsw fetch -D ../UniXNU-device $DEVICE_ARGS
+
+      - name: build the owner-signed Metal plugin
+        working-directory: UniXNU
+        run: python3 scripts/build-adreno-metal-plugin.py --chip a830
+
+      - name: bundle the original trust modules
+        working-directory: UniXNU
+        run: |
+          mkdir -p build/original-static-system-trust
+          python3 ../UniXNU-device/scripts/prepare-original-trust.py --tree . \
+            --inputs out/ipsw/21H461 \
+            --output build/original-static-system-trust/original-static-system.bundle
+
+      - name: pack the GPU addon
+        working-directory: UniXNU
+        run: python3 scripts/make-gpu-addon.py build/NativeAdrenoMetal.gpuaddon
+
+      - name: build the owner trust bundle
+        working-directory: UniXNU
+        run: python3 scripts/make-owner-trust-bundle.py
+
+      - name: collect results
+        run: |
+          mkdir -p out
+          cp UniXNU/build/NativeAdrenoMetal.gpuaddon out/ || true
+          cp UniXNU/build/adreno-metal-plugin/owner-trust.bundle out/ || true
+          cp UniXNU/build/adreno-metal-plugin/owner-trust.json out/ || true
+          cp UniXNU/build/adreno-metal-plugin/trust.json out/ || true
+          ls -l out
+
+      - name: upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: piano-metal-plugin
+          path: out
+          if-no-files-found: warn
