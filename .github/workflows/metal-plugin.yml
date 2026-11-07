@@ -48,7 +48,7 @@ jobs:
 
       - name: install tools
         run: |
-          brew install dtc llvm lld cmake mtools lzfse nasm glslang spirv-tools bison flex pkg-config
+          brew install dtc llvm lld cmake mtools lzfse nasm glslang spirv-tools shaderc bison flex pkg-config
           echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
           echo "/opt/homebrew/opt/lld/bin" >> $GITHUB_PATH
           # macOS ships bison 2.3 and Mesa needs at least 3.8
