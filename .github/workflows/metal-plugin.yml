@@ -147,7 +147,7 @@ jobs:
         working-directory: UniXNU
         run: |
           mkdir -p build/original-static-system-trust
-          python3 ../UniXNU-device/scripts/prepare-original-trust.py --tree . \
+          python3 "$GITHUB_WORKSPACE/ci/scripts/prepare-original-trust.py" --tree . \
             --inputs out/ipsw/21H461 \
             --output build/original-static-system-trust/original-static-system.bundle
 
