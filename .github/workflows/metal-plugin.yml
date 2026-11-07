@@ -143,6 +143,10 @@ jobs:
         working-directory: UniXNU
         run: python3 scripts/build-adreno-metal-plugin.py --target ios --no-replay
 
+      - name: pack the GPU addon
+        working-directory: UniXNU
+        run: python3 scripts/make-gpu-addon.py build/NativeAdrenoMetal.gpuaddon
+
       - name: bundle the original trust modules
         working-directory: UniXNU
         run: |
