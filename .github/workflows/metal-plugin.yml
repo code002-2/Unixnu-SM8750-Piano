@@ -48,7 +48,7 @@ jobs:
 
       - name: install tools
         run: |
-          brew install dtc llvm lld cmake mtools lzfse nasm
+          brew install dtc llvm lld cmake mtools lzfse nasm glslang spirv-tools
           echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
           echo "/opt/homebrew/opt/lld/bin" >> $GITHUB_PATH
 
