@@ -183,7 +183,7 @@ jobs:
       - name: stage the plugin into a Data seed
         working-directory: UniXNU
         run: |
-          python3 scripts/add-gpu-plugin-data.py --publish \
+          python3 scripts/add-gpu-plugin-data.py --publish --diag \
             "$GITHUB_WORKSPACE/ci/inputs/data.dbrdisk" build/gpu-data.dbr
           ls -l build/gpu-data.dbr
 
