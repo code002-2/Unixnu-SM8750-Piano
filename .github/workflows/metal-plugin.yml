@@ -184,7 +184,6 @@ jobs:
         working-directory: UniXNU
         run: |
           python3 scripts/add-gpu-plugin-data.py --publish \
-            --enable-jobs com.apple.iconservices.iconservicesagent \
             "$GITHUB_WORKSPACE/ci/inputs/data.dbrdisk" build/gpu-data.dbr
           ls -l build/gpu-data.dbr
 
