@@ -1,0 +1,62 @@
+name: userdata
+
+# Rebuild the unixnu image (OS + Cryptex1,SystemOS windows) on macOS, the same way the device
+# README does. The Linux udif decoder path produced an OS window whose APFS container would not
+# scan (nx_mount: failed to scan checkpoint descriptor area), while the SystemOS window in the
+# same image scanned fine.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  userdata:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          path: UniXNU
+          submodules: recursive
+
+      - uses: actions/checkout@v4
+        with:
+          repository: code002-2/android_device_xiaomi_piano-unixnu
+          path: device
+          ref: main
+          submodules: recursive
+
+      - name: tools
+        run: |
+          brew install dtc llvm lld cmake mtools lzfse blacktop/tap/ipsw
+          export PATH="/opt/homebrew/opt/llvm/bin:/opt/homebrew/opt/lld/bin:$PATH"
+
+      - name: fetch the IPSW components
+        working-directory: UniXNU
+        run: |
+          ./unixnu defconfig piano_defconfig -D ../device
+          ./unixnu fetch -D ../device
+          ./unixnu status --json | head -40
+
+      - name: build the userdata image
+        working-directory: UniXNU
+        run: |
+          ./unixnu build userdata -D ../device --ipsw auto
+          find out -name 'userdata-root.img' -o -name 'userdata-root.json' | tee /dev/stderr
+
+      - name: report
+        working-directory: UniXNU
+        run: |
+          cat $(find out -name 'userdata-root.json' | head -1)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: userdata
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            UniXNU/out/**/userdata-root.img
+            UniXNU/out/**/userdata-root.json
