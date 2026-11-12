@@ -180,10 +180,17 @@ jobs:
       # The plugin alone only runs its own tests: --publish hands the native Metal device back to
       # backboardd's discovery so the render server composites through it (add-gpu-plugin-data.py).
       # The icons also need the iconservices agent enabled in the seed's launchd policy.
+      - name: gpu environment
+        run: printf 'TU_DEBUG=sysmem,nocb\n' > ci/gpu.env
+
       - name: stage the plugin into a Data seed
         working-directory: UniXNU
         run: |
           python3 scripts/add-gpu-plugin-data.py --publish \
+            --clients 'iconservicesagent,WidgetRenderer*' \
+            --enable-jobs com.apple.iconservices.iconservicesagent \
+            --env ci/gpu.env \
+            --prime-list build/prime-list.txt \
             "$GITHUB_WORKSPACE/ci/inputs/data.dbrdisk" build/gpu-data.dbr
           ls -l build/gpu-data.dbr
 
